@@ -145,6 +145,24 @@ vi.mock("../components/PerformanceChart", () => ({
     }) => <div data-testid="chart">{performance.r.length}-{totalTrades}-{tradesWithR}-{currency}</div>,
 }));
 
+vi.mock("../components/TradingCalendar", () => ({
+    default: ({ days, currency, onMonthChange }: {
+        days: Array<{ date: string }>;
+        currency: string;
+        onMonthChange: (year: number, month: number) => void;
+    }) => (
+        <div data-testid="trading-calendar">
+            {days.length}-{currency}
+            <button
+                type="button"
+                onClick={() => onMonthChange(2026, 10)}
+            >
+                Change calendar month
+            </button>
+        </div>
+    ),
+}));
+
 vi.mock("../components/TradesTable", () => ({
     default: ({ trades, editingTradeId, selectedAccountId, onEdit, onUpdate, onDelete }: {
         trades: Trade[];
@@ -186,6 +204,15 @@ const account2: Account = {
     currency: "EUR",
 };
 
+const emptyCalendar = {
+    total_trades: 0,
+    trading_days: 0,
+    total_pnl: 0,
+    total_r: null,
+    trades_with_r: 0,
+    days: [],
+};
+
 function makeTrade(id = 1, symbol = "EURUSD", stop: number | null = 1.14, result: number | null = 2): Trade {
     return [id, symbol, "long", 1.15, stop, 1.17, result, 250, "2026-08-17T10:00", "2026-08-17T11:00"];
 }
@@ -224,9 +251,16 @@ function queueDashboardData(trades: Trade[]) {
     fetchMock.mockResolvedValueOnce(apiResponse(statisticsFor(trades)));
 }
 
+function queueCalendarData(data = emptyCalendar) {
+    fetchMock.mockResolvedValueOnce(apiResponse(data));
+}
+
 function queueDashboard(accounts: Account[] = [account1], trades: Trade[] = [makeTrade()]) {
     fetchMock.mockResolvedValueOnce(apiResponse(accounts));
-    if (accounts.length > 0) queueDashboardData(trades);
+    if (accounts.length > 0) {
+        queueDashboardData(trades);
+        queueCalendarData();
+    }
 }
 
 async function renderDashboard(accounts: Account[] = [account1], trades: Trade[] = [makeTrade()]) {
@@ -270,6 +304,7 @@ describe("dashboard page", () => {
         fetchMock = vi.fn();
         fetchMock.mockImplementation(async (input) => {
             const url = String(input);
+            if (url.includes("/calendar?")) return apiResponse(emptyCalendar);
             if (url.includes("/statistics")) return apiResponse(statisticsFor([]));
             if (url.includes("/trades?")) return apiResponse(paginatedTrades([]));
             return apiResponse([]);
@@ -316,6 +351,58 @@ describe("dashboard page", () => {
         );
     });
 
+    test("loads the trading calendar for the selected account", async () => {
+        const today = new Date();
+        const calendarData = {
+            total_trades: 1,
+            trading_days: 1,
+            total_pnl: 250,
+            total_r: 2,
+            trades_with_r: 1,
+            days: [{
+                date: "2026-09-12",
+                total_trades: 1,
+                total_pnl: 250,
+                total_r: 2,
+                trades_with_r: 1,
+            }],
+        };
+
+        fetchMock.mockImplementation(async (input) => {
+            const url = String(input);
+            if (url.endsWith("/accounts")) return apiResponse([account1]);
+            if (url.includes("/trades?")) return apiResponse(paginatedTrades([makeTrade()]));
+            if (url.includes("/statistics?")) return apiResponse(statisticsFor([makeTrade()]));
+            if (url.includes("/calendar?")) return apiResponse(calendarData);
+            return apiResponse([]);
+        });
+
+        render(<Home />);
+
+        expect(await screen.findByTestId("trading-calendar")).toHaveTextContent("1-USD");
+        expect(fetchMock).toHaveBeenCalledWith(
+            `http://127.0.0.1:8000/calendar?account_id=7&year=${today.getFullYear()}&month=${today.getMonth() + 1}`,
+            expect.anything()
+        );
+    });
+
+    test("loads another calendar month", async () => {
+        await renderDashboard();
+
+        fireEvent.click(
+            screen.getByRole("button", {
+                name: "Change calendar month",
+            })
+        );
+
+        await waitFor(() =>
+            expect(fetchMock).toHaveBeenCalledWith(
+                "http://127.0.0.1:8000/calendar?account_id=7&year=2026&month=10",
+                expect.anything()
+            )
+        );
+    });
+
     test("redirects when initial session is missing", async () => {
         mockGetSession.mockResolvedValueOnce({ data: { session: null } });
         render(<Home />);
@@ -357,29 +444,33 @@ describe("dashboard page", () => {
         expect(screen.getByTestId("stats")).toHaveTextContent("0-0-");
     });
 
-    test.each(["accounts", "trades", "statistics"])("handles failed %s request", async (request) => {
+    test.each(["accounts", "trades", "statistics", "calendar"])("handles failed %s request", async (request) => {
         if (request === "accounts") {
             fetchMock.mockResolvedValueOnce(apiResponse([], false));
         } else {
             fetchMock.mockResolvedValueOnce(apiResponse([account1]));
-            if (request === "trades") {
-                fetchMock.mockResolvedValueOnce(apiResponse({}, false));
-                fetchMock.mockResolvedValueOnce(apiResponse(statisticsFor([])));
-            } else {
-                fetchMock.mockResolvedValueOnce(apiResponse(paginatedTrades([])));
-                fetchMock.mockResolvedValueOnce(apiResponse({}, false));
-            }
+            fetchMock.mockResolvedValueOnce(
+                request === "trades" ? apiResponse({}, false) : apiResponse(paginatedTrades([]))
+            );
+            fetchMock.mockResolvedValueOnce(
+                request === "statistics" ? apiResponse({}, false) : apiResponse(statisticsFor([]))
+            );
+            fetchMock.mockResolvedValueOnce(
+                request === "calendar" ? apiResponse({}, false) : apiResponse(emptyCalendar)
+            );
         }
         render(<Home />);
         await screen.findByRole("heading", { name: "Dashboard" });
-        await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(request === "accounts" ? 1 : 3));
+        await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(request === "accounts" ? 1 : 4));
         expect(screen.getByTestId("trade-count")).toHaveTextContent("0");
     });
 
     test("changes selected account", async () => {
         fetchMock.mockResolvedValueOnce(apiResponse([account1, account2]));
         queueDashboardData([makeTrade()]);
+        queueCalendarData();
         queueDashboardData([makeTrade(2, "GBPUSD")]);
+        queueCalendarData();
         render(<Home />);
         await screen.findByText("EURUSD");
         fireEvent.change(screen.getByRole("combobox"), { target: { value: "8" } });
@@ -392,6 +483,7 @@ describe("dashboard page", () => {
             const url = String(input);
             if (url.endsWith("/accounts")) return apiResponse([account1, account2]);
             const selectedTrades = url.includes("account_id=8") ? [makeTrade(2, "GBPUSD")] : [makeTrade()];
+            if (url.includes("/calendar?")) return apiResponse(emptyCalendar);
             return url.includes("/statistics")
                 ? apiResponse(statisticsFor(selectedTrades))
                 : apiResponse(paginatedTrades(selectedTrades));
@@ -417,7 +509,7 @@ describe("dashboard page", () => {
         fetchMock.mockResolvedValueOnce(apiResponse({}));
         queueDashboardData([makeTrade(1, "GBPUSD")]);
         render(<Home />);
-        await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+        await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
         await openForm();
         await fillValidTrade();
         await saveTrade();
@@ -434,7 +526,7 @@ describe("dashboard page", () => {
         fetchMock.mockResolvedValueOnce(apiResponse({}));
         queueDashboardData([createdTrade]);
         render(<Home />);
-        await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+        await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
         await openForm();
         await fillValidTrade();
         await act(async () => formActions.clearStop!());
@@ -450,7 +542,7 @@ describe("dashboard page", () => {
         await openForm();
         await act(async () => formActions.clearDates!());
         await saveTrade();
-        expect(fetchMock).toHaveBeenCalledTimes(3);
+        expect(fetchMock).toHaveBeenCalledTimes(4);
         expect(screen.getByText("Please fill in all required fields.")).toBeInTheDocument();
     });
 
@@ -460,7 +552,7 @@ describe("dashboard page", () => {
         await fillValidTrade();
         await act(async () => formActions.reverseDates!());
         await saveTrade();
-        expect(fetchMock).toHaveBeenCalledTimes(3);
+        expect(fetchMock).toHaveBeenCalledTimes(4);
         expect(screen.getByText("Exit date cannot be before entry date.")).toBeInTheDocument();
         fireEvent.click(screen.getByRole("button", { name: "OK" }));
         expect(screen.queryByText("Exit date cannot be before entry date.")).not.toBeInTheDocument();
@@ -479,7 +571,7 @@ describe("dashboard page", () => {
         queueDashboard([account1], []);
         fetchMock.mockResolvedValueOnce(apiResponse({}, false));
         render(<Home />);
-        await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+        await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
         await openForm();
         await fillValidTrade();
         await saveTrade();
@@ -521,7 +613,7 @@ describe("dashboard page", () => {
         await renderDashboard([account1], [invalidTrade]);
         await editTrade(invalidTrade);
         await updateTrade();
-        expect(fetchMock).toHaveBeenCalledTimes(3);
+        expect(fetchMock).toHaveBeenCalledTimes(4);
     });
 
     test("redirects when update session disappears", async () => {
@@ -539,7 +631,7 @@ describe("dashboard page", () => {
         await screen.findByText("EURUSD");
         await editTrade();
         await updateTrade();
-        expect(fetchMock).toHaveBeenCalledTimes(4);
+        expect(fetchMock).toHaveBeenCalledTimes(5);
     });
 
     test("deletes trade and reloads dashboard", async () => {
@@ -576,48 +668,48 @@ describe("dashboard page", () => {
         await renderDashboard();
 
         fireEvent.click(screen.getByRole("button", { name: "Last 30 days" }));
-        await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+        await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6));
 
-        const thirtyDayUrl = new URL(String(fetchMock.mock.calls[3][0]));
+        const thirtyDayUrl = new URL(String(fetchMock.mock.calls[4][0]));
         const thirtyDayFrom = new Date(thirtyDayUrl.searchParams.get("date_from")!);
         const thirtyDayTo = new Date(thirtyDayUrl.searchParams.get("date_to")!);
         expect((thirtyDayTo.getTime() - thirtyDayFrom.getTime()) / 86_400_000).toBe(29);
-        expect(String(fetchMock.mock.calls[4][0])).toContain(
+        expect(String(fetchMock.mock.calls[5][0])).toContain(
             `date_from=${thirtyDayUrl.searchParams.get("date_from")}&date_to=${thirtyDayUrl.searchParams.get("date_to")}`
         );
 
         fireEvent.click(screen.getByRole("button", { name: "Last 90 days" }));
-        await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(7));
+        await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(8));
 
-        const ninetyDayUrl = new URL(String(fetchMock.mock.calls[5][0]));
+        const ninetyDayUrl = new URL(String(fetchMock.mock.calls[6][0]));
         const ninetyDayFrom = new Date(ninetyDayUrl.searchParams.get("date_from")!);
         const ninetyDayTo = new Date(ninetyDayUrl.searchParams.get("date_to")!);
         expect((ninetyDayTo.getTime() - ninetyDayFrom.getTime()) / 86_400_000).toBe(89);
 
         fireEvent.click(screen.getByRole("button", { name: "All time" }));
-        await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(9));
-        expect(fetchMock.mock.calls[7][0]).toBe(
+        await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(10));
+        expect(fetchMock.mock.calls[8][0]).toBe(
             "http://127.0.0.1:8000/trades?account_id=7&page=1&page_size=5"
         );
-        expect(fetchMock.mock.calls[8][0]).toBe(
+        expect(fetchMock.mock.calls[9][0]).toBe(
             "http://127.0.0.1:8000/statistics?account_id=7"
         );
     });
 
     test("waits for a complete valid custom date range", async () => {
         await renderDashboard();
-        expect(fetchMock).toHaveBeenCalledTimes(3);
+        expect(fetchMock).toHaveBeenCalledTimes(4);
 
         fireEvent.click(screen.getByRole("button", { name: "Custom" }));
         fireEvent.change(screen.getByLabelText("From"), {
             target: { value: "2026-08-01" },
         });
-        expect(fetchMock).toHaveBeenCalledTimes(3);
+        expect(fetchMock).toHaveBeenCalledTimes(4);
 
         fireEvent.change(screen.getByLabelText("To"), {
             target: { value: "2026-08-31" },
         });
-        await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+        await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6));
         expect(fetchMock).toHaveBeenCalledWith(
             "http://127.0.0.1:8000/trades?account_id=7&page=1&page_size=5&date_from=2026-08-01&date_to=2026-08-31",
             expect.anything()
@@ -633,7 +725,7 @@ describe("dashboard page", () => {
         expect(screen.getByRole("alert")).toHaveTextContent(
             "Start date cannot be after end date."
         );
-        expect(fetchMock).toHaveBeenCalledTimes(5);
+        expect(fetchMock).toHaveBeenCalledTimes(6);
     });
 
     test("logs out", async () => {
