@@ -183,6 +183,38 @@ def _build_trade_data(
     }
 
 
+def load_calendar_metrics_batch_from_supabase(
+    user_id: str,
+    token: str,
+    account_id: int,
+    month_start: date,
+    next_month_start: date,
+    offset: int = 0,
+    batch_size: int = 1000,
+):
+    client = get_authenticated_client(token)
+    end = offset + batch_size - 1
+
+    query = (
+        client
+        .table("trades")
+        .select("pnl,result,entry_datetime")
+        .eq("user_id", user_id)
+        .eq("account_id", account_id)
+        .gte("entry_datetime", month_start.isoformat())
+        .lt("entry_datetime", next_month_start.isoformat())
+        .order(
+            "entry_datetime",
+            desc=False,
+            nullsfirst=False,
+        )
+        .range(offset, end)
+    )
+
+    response = execute_query(query)
+    return response.data
+
+
 def save_trade_to_supabase(
     trade,
     user_id: str,

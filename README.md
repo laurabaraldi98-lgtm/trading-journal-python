@@ -42,6 +42,7 @@ Authenticated users can:
 - view aggregate trading statistics
 - visualise performance over time
 - filter trade history and analytics using preset or custom date ranges
+- review daily trading results in a monthly calendar
 - keep data isolated between users
 - access the application from desktop and mobile devices
 
@@ -68,6 +69,8 @@ The current application is the result of several iterations, gradually introduci
 - Trade date validation
 - Trading statistics
 - Performance chart
+- Monthly trading calendar
+- Daily P/L, R-multiple and trade-count summaries
 - Backend aggregation across complete filtered datasets
 - Preset and custom date-range filtering
 - Responsive mobile and desktop interface
@@ -92,6 +95,7 @@ The current application is the result of several iterations, gradually introduci
 - TypeScript
 - Tailwind CSS
 - Recharts
+- React DayPicker
 - Supabase JavaScript client
 
 ## Backend
@@ -312,6 +316,24 @@ Trade history is paginated on the server with 20 records per page. Changing the 
 
 ---
 
+# Trading Calendar
+
+The dashboard includes a responsive monthly calendar that summarises trading activity for the selected account.
+
+Each trading day displays:
+
+- total P/L
+- number of trades
+- total R when R-multiple data is available
+
+Profitable and losing days use distinct visual states, making daily performance patterns easier to identify. Users can navigate between months without leaving the dashboard.
+
+Calendar data is calculated by the FastAPI backend from trades whose entry timestamps fall within the requested month. The database layer retrieves only the fields required for the calculation and reads them in bounded batches. The frontend receives daily aggregate values through the protected `/calendar` endpoint rather than calculating them from a partial trade list.
+
+After a trade is created, edited or deleted, the dashboard automatically refreshes both its analytics and the displayed calendar month.
+
+---
+
 # API Error Handling
 
 The backend converts authentication, resource and database failures into controlled HTTP responses.
@@ -364,6 +386,7 @@ Backend tests cover:
 - server-side trade pagination
 - date-range query validation and filtering
 - complete dashboard aggregation across batched trade metrics
+- monthly calendar aggregation and batched database loading
 
 External dependencies are mocked for unit tests where appropriate.
 
@@ -397,6 +420,8 @@ Frontend tests cover:
 - date preset and custom-range interactions
 - filtered dashboard and trade-history requests
 - pagination reset when filters change
+- calendar rendering, month navigation and responsive behaviour
+- calendar refresh after trade changes
 
 During development, the frontend and backend unit-test suites reached **100% code coverage**.
 
@@ -597,6 +622,7 @@ python -m pytest tests \
   --cov=database \
   --cov=calculations \
   --cov=demo \
+  --cov=imports \
   --cov-branch \
   --cov-report=term-missing
 ```
@@ -695,6 +721,8 @@ Public demo system
 Automatic CSV import
     ↓
 Server-side pagination and date filters
+    ↓
+Monthly trading calendar
 ```
 
 ## 1. Python CLI
@@ -865,6 +893,14 @@ Date filtering is implemented across the database, API and frontend layers. User
 
 ---
 
+## 13. Monthly trading calendar
+
+The dashboard now includes a monthly calendar built with React DayPicker. It presents daily P/L, R-multiple totals and trade counts while adapting its layout to desktop and mobile screens.
+
+Calendar aggregation is performed by the backend across the complete requested month and exposed through a dedicated authenticated endpoint. Calendar data reloads when the user changes account or month and after successful trade creation, editing or deletion.
+
+---
+
 # Legacy CLI
 
 The `legacy-cli/` directory contains the original command-line implementation.
@@ -993,6 +1029,7 @@ The current version includes the main functionality required for a usable tradin
 - backend statistics across complete filtered datasets
 - performance statistics
 - charts
+- monthly trading calendar
 - responsive layouts
 - data validation
 - database persistence
@@ -1013,7 +1050,7 @@ Potential future iterations include:
 
 - more advanced trading analytics
 - additional filters
-- calendar-based trading review
+- calendar day details and trade drill-down
 - richer account statistics
 - improved dashboard visualisations
 - CSV export

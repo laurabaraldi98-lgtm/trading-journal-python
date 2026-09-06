@@ -19,6 +19,7 @@ from database import (
     account_belongs_to_user,
     ResourceNotFoundError,
     load_trade_metrics_batch_from_supabase,
+    load_calendar_metrics_batch_from_supabase,
 )
 
 
@@ -1040,3 +1041,51 @@ def test_save_trades_to_supabase():
         ]
     )
     assert result == fake_response.data
+
+
+def test_load_calendar_metrics_batch_from_supabase():
+    fake_metrics = [
+        {
+            "pnl": "100",
+            "result": "2",
+            "entry_datetime": "2026-09-12T10:00:00",
+        }
+    ]
+    fake_response = SimpleNamespace(data=fake_metrics)
+    mock_query = make_mock_query(fake_response)
+    mock_client = make_mock_client(mock_query)
+
+    with patch(
+        "database.get_authenticated_client",
+        return_value=mock_client,
+    ):
+        metrics = load_calendar_metrics_batch_from_supabase(
+            "user-123",
+            "fake-token",
+            account_id=7,
+            month_start=date(2026, 9, 1),
+            next_month_start=date(2026, 10, 1),
+            offset=1000,
+            batch_size=500,
+        )
+
+    mock_query.select.assert_called_once_with(
+        "pnl,result,entry_datetime"
+    )
+    mock_query.eq.assert_any_call("user_id", "user-123")
+    mock_query.eq.assert_any_call("account_id", 7)
+    mock_query.gte.assert_called_once_with(
+        "entry_datetime",
+        "2026-09-01",
+    )
+    mock_query.lt.assert_called_once_with(
+        "entry_datetime",
+        "2026-10-01",
+    )
+    mock_query.order.assert_called_once_with(
+        "entry_datetime",
+        desc=False,
+        nullsfirst=False,
+    )
+    mock_query.range.assert_called_once_with(1000, 1499)
+    assert metrics == fake_metrics

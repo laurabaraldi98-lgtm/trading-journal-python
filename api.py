@@ -18,7 +18,11 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
 
 from auth import get_current_user, get_demo_session
-from calculations import calculate_dashboard_statistics, calculate_r
+from calculations import (
+    calculate_calendar_statistics,
+    calculate_dashboard_statistics,
+    calculate_r,
+)
 from database import (
     DatabaseError,
     ResourceNotFoundError,
@@ -33,6 +37,7 @@ from database import (
     save_trades_to_supabase,
     update_account_in_supabase,
     update_trade_in_supabase,
+    load_calendar_metrics_batch_from_supabase,
 )
 from imports.preview import (
     CsvPreviewError,
@@ -67,6 +72,7 @@ INVALID_MAPPING_MESSAGE = (
 
 
 STATISTICS_BATCH_SIZE = 1000
+CALENDAR_BATCH_SIZE = 1000
 
 
 class TradeBase(BaseModel):
@@ -443,6 +449,62 @@ def get_statistics(
         date_to,
     )
     return calculate_dashboard_statistics(metrics)
+
+
+def iter_calendar_metrics(
+    user_id: str,
+    token: str,
+    account_id: int,
+    month_start: date,
+    next_month_start: date,
+):
+    offset = 0
+
+    while True:
+        batch = load_calendar_metrics_batch_from_supabase(
+            user_id,
+            token,
+            account_id,
+            month_start,
+            next_month_start,
+            offset=offset,
+            batch_size=CALENDAR_BATCH_SIZE,
+        )
+
+        yield from batch
+
+        if len(batch) < CALENDAR_BATCH_SIZE:
+            break
+
+        offset += CALENDAR_BATCH_SIZE
+
+
+@app.get("/calendar")
+def get_calendar(
+    account_id: int,
+    year: int = Query(ge=1, le=9998),
+    month: int = Query(ge=1, le=12),
+    auth_data=Depends(get_current_user),
+):
+    month_start = date(year, month, 1)
+
+    if month == 12:
+        next_month_start = date(year + 1, 1, 1)
+    else:
+        next_month_start = date(year, month + 1, 1)
+
+    user = auth_data["user"]
+    token = auth_data["token"]
+
+    metrics = iter_calendar_metrics(
+        user.id,
+        token,
+        account_id,
+        month_start,
+        next_month_start,
+    )
+
+    return calculate_calendar_statistics(metrics)
 
 
 @app.post("/trades")

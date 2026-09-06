@@ -846,6 +846,107 @@ def test_get_statistics_reads_all_batches(authenticated_user):
     ]
 
 
+def test_get_calendar_reads_all_batches(authenticated_user):
+    first_batch = [
+        {
+            "pnl": 1,
+            "result": 1,
+            "entry_datetime": "2026-09-12T10:00:00",
+        }
+    ] * 1000
+
+    second_batch = [
+        {
+            "pnl": -1,
+            "result": -1,
+            "entry_datetime": "2026-09-13T10:00:00",
+        }
+    ]
+
+    with patch(
+        "api.load_calendar_metrics_batch_from_supabase",
+        side_effect=[first_batch, second_batch],
+    ) as mock_load:
+        response = client.get(
+            "/calendar"
+            "?account_id=7"
+            "&year=2026"
+            "&month=9"
+        )
+
+    assert response.status_code == 200
+    assert response.json()["total_trades"] == 1001
+    assert response.json()["trading_days"] == 2
+    assert response.json()["total_pnl"] == 999
+    assert response.json()["total_r"] == 999
+
+    assert mock_load.call_args_list == [
+        call(
+            "test-user",
+            "fake-token",
+            7,
+            date(2026, 9, 1),
+            date(2026, 10, 1),
+            offset=0,
+            batch_size=1000,
+        ),
+        call(
+            "test-user",
+            "fake-token",
+            7,
+            date(2026, 9, 1),
+            date(2026, 10, 1),
+            offset=1000,
+            batch_size=1000,
+        ),
+    ]
+
+
+def test_get_calendar_handles_december(authenticated_user):
+    with patch(
+        "api.load_calendar_metrics_batch_from_supabase",
+        return_value=[],
+    ) as mock_load:
+        response = client.get(
+            "/calendar"
+            "?account_id=7"
+            "&year=2026"
+            "&month=12"
+        )
+
+    assert response.status_code == 200
+
+    mock_load.assert_called_once_with(
+        "test-user",
+        "fake-token",
+        7,
+        date(2026, 12, 1),
+        date(2027, 1, 1),
+        offset=0,
+        batch_size=1000,
+    )
+
+
+@pytest.mark.parametrize(
+    "query_string",
+    [
+        "year=0&month=9",
+        "year=9999&month=9",
+        "year=2026&month=0",
+        "year=2026&month=13",
+    ],
+)
+def test_get_calendar_rejects_invalid_year_or_month(
+    authenticated_user,
+    query_string,
+):
+    response = client.get(
+        f"/calendar?account_id=7&{query_string}"
+    )
+
+    assert response.status_code == 422
+
+
 def test_get_statistics_passes_date_filters(authenticated_user):
     with patch(
         "api.load_trade_metrics_batch_from_supabase",
@@ -1298,6 +1399,42 @@ def test_imports_csv_automatically(authenticated_user):
     assert response.status_code == 200
     assert response.json() == {"imported_count": 1}
     mock_save.assert_called_once()
+
+
+def test_imports_csv_without_stop_automatically(authenticated_user):
+    content = (
+        "Instrument;Side;Open Price;Close Price;Profit;"
+        "Open Time;Close Time\n"
+        "EURUSD;Buy;1,1500;1,1700;€200,00;"
+        "30/08/2026 10:00;30/08/2026 11:00\n"
+    ).encode("utf-8")
+
+    with (
+        patch("api.account_belongs_to_user", return_value=True),
+        patch(
+            "api.save_trades_to_supabase",
+            return_value=[{"id": 10}],
+        ) as mock_save,
+    ):
+        response = client.post(
+            "/imports",
+            files={
+                "file": (
+                    "trades.csv",
+                    content,
+                    "text/csv",
+                )
+            },
+            data={"account_id": "7"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"imported_count": 1}
+
+    saved_trade = mock_save.call_args.args[0][0]
+
+    assert saved_trade["stop"] is None
+    assert saved_trade["result"] is None
 
 
 def test_automatic_import_rejects_missing_columns(authenticated_user):

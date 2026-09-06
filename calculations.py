@@ -89,3 +89,62 @@ def calculate_dashboard_statistics(trades):
             "pnl": sample_chart_points(pnl_curve),
         },
     }
+
+
+def calculate_calendar_statistics(trades):
+    days = {}
+    total_trades = 0
+    total_pnl = 0.0
+    total_r = 0.0
+    trades_with_r = 0
+
+    for trade in trades:
+        trade_date = trade["entry_datetime"][:10]
+        pnl = float(trade["pnl"])
+        result = trade["result"]
+
+        if trade_date not in days:
+            days[trade_date] = {
+                "total_trades": 0,
+                "total_pnl": 0.0,
+                "total_r": 0.0,
+                "trades_with_r": 0,
+            }
+
+        day = days[trade_date]
+        day["total_trades"] += 1
+        day["total_pnl"] += pnl
+
+        total_trades += 1
+        total_pnl += pnl
+
+        if result is not None:
+            numeric_result = float(result)
+            day["total_r"] += numeric_result
+            day["trades_with_r"] += 1
+            total_r += numeric_result
+            trades_with_r += 1
+
+    calendar_days = []
+
+    for trade_date, day in sorted(days.items()):
+        calendar_days.append({
+            "date": trade_date,
+            "total_trades": day["total_trades"],
+            "total_pnl": day["total_pnl"],
+            "total_r": (
+                day["total_r"]
+                if day["trades_with_r"] > 0
+                else None
+            ),
+            "trades_with_r": day["trades_with_r"],
+        })
+
+    return {
+        "total_trades": total_trades,
+        "trading_days": len(calendar_days),
+        "total_pnl": total_pnl,
+        "total_r": total_r if trades_with_r > 0 else None,
+        "trades_with_r": trades_with_r,
+        "days": calendar_days,
+    }
