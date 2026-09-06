@@ -246,6 +246,10 @@ function statisticsFor(trades: Trade[]): Statistics {
 
 let fetchMock: ReturnType<typeof vi.fn>;
 
+function calendarRequestCount() {
+    return fetchMock.mock.calls.filter(([input]) => String(input).includes("/calendar?")).length;
+}
+
 function queueDashboardData(trades: Trade[]) {
     fetchMock.mockResolvedValueOnce(apiResponse(paginatedTrades(trades)));
     fetchMock.mockResolvedValueOnce(apiResponse(statisticsFor(trades)));
@@ -518,6 +522,7 @@ describe("dashboard page", () => {
             expect.objectContaining({ method: "POST" })
         );
         await waitFor(() => expect(screen.queryByTestId("trade-form")).not.toBeInTheDocument());
+        await waitFor(() => expect(calendarRequestCount()).toBe(2));
     });
 
     test("creates trade without stop", async () => {
@@ -646,6 +651,7 @@ describe("dashboard page", () => {
             expect.objectContaining({ method: "DELETE" })
         );
         await waitFor(() => expect(screen.queryByText("EURUSD")).not.toBeInTheDocument());
+        await waitFor(() => expect(calendarRequestCount()).toBe(2));
     });
 
     test("redirects when delete session disappears", async () => {

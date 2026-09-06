@@ -371,10 +371,15 @@ export default function Home() {
     });
 
     if (response.ok) {
-      await loadDashboardData(
-        session.access_token,
-        accountId,
-      );
+      await Promise.all([
+        loadDashboardData(session.access_token, accountId),
+        loadCalendarData(
+          session.access_token,
+          accountId,
+          calendarPeriod.year,
+          calendarPeriod.month,
+        ),
+      ]);
 
       setSymbol("");
       setDirection("");
@@ -406,10 +411,15 @@ export default function Home() {
     });
 
     if (response.ok && selectedAccountId !== null) {
-      await loadDashboardData(
-        session.access_token,
-        selectedAccountId,
-      );
+      await Promise.all([
+        loadDashboardData(session.access_token, selectedAccountId),
+        loadCalendarData(
+          session.access_token,
+          selectedAccountId,
+          calendarPeriod.year,
+          calendarPeriod.month,
+        ),
+      ]);
     }
   }
 
@@ -459,10 +469,15 @@ export default function Home() {
     });
 
     if (response.ok) {
-      await loadDashboardData(
-        session.access_token,
-        selectedAccountId!,
-      );
+      await Promise.all([
+        loadDashboardData(session.access_token, selectedAccountId!),
+        loadCalendarData(
+          session.access_token,
+          selectedAccountId!,
+          calendarPeriod.year,
+          calendarPeriod.month,
+        ),
+      ]);
 
       setEditingTradeId(null);
     }
