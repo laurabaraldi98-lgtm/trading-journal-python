@@ -1401,6 +1401,42 @@ def test_imports_csv_automatically(authenticated_user):
     mock_save.assert_called_once()
 
 
+def test_imports_csv_without_stop_automatically(authenticated_user):
+    content = (
+        "Instrument;Side;Open Price;Close Price;Profit;"
+        "Open Time;Close Time\n"
+        "EURUSD;Buy;1,1500;1,1700;€200,00;"
+        "30/08/2026 10:00;30/08/2026 11:00\n"
+    ).encode("utf-8")
+
+    with (
+        patch("api.account_belongs_to_user", return_value=True),
+        patch(
+            "api.save_trades_to_supabase",
+            return_value=[{"id": 10}],
+        ) as mock_save,
+    ):
+        response = client.post(
+            "/imports",
+            files={
+                "file": (
+                    "trades.csv",
+                    content,
+                    "text/csv",
+                )
+            },
+            data={"account_id": "7"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"imported_count": 1}
+
+    saved_trade = mock_save.call_args.args[0][0]
+
+    assert saved_trade["stop"] is None
+    assert saved_trade["result"] is None
+
+
 def test_automatic_import_rejects_missing_columns(authenticated_user):
     content = (
         b"Instrument,Side\n"
