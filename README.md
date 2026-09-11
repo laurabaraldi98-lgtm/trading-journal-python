@@ -124,6 +124,8 @@ The current application is the result of several iterations, gradually introduci
 - GitHub Actions
 - Vercel
 - Supabase
+- Supabase CLI
+- Docker
 - ESLint
 - npm
 
@@ -525,6 +527,30 @@ trading-journal/
 git clone https://github.com/laurabaraldi98-lgtm/trading-journal.git
 cd trading-journal
 ```
+
+---
+
+## Local Database
+
+The database schema, constraints and Row Level Security policies are versioned in `supabase/migrations/`.
+
+Docker and the Supabase CLI are only required to recreate and test the Supabase database locally. They are not required when the application connects directly to a hosted Supabase project.
+
+Start the local database:
+
+```bash
+npx supabase db start
+```
+
+The migration files are applied automatically in timestamp order.
+
+Stop the local database:
+
+```bash
+npx supabase stop
+```
+
+On Windows PowerShell, use `npx.cmd` instead of `npx`.
 
 ---
 
